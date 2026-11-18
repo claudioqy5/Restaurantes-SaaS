@@ -1,0 +1,74 @@
+services:
+  # -------------------------------------------------------------
+  # 1. Base de Datos: Microsoft SQL Server 2022
+  # -------------------------------------------------------------
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: resto-sqlserver
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:-RestoPass2026!#Segura}"
+      MSSQL_PID: "Developer"
+    ports:
+      - "${SQL_PORT:-1433}:1433"
+    volumes:
+      - sqlserver_datos:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -C -Q 'SELECT 1' 2>/dev/null || /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -Q 'SELECT 1' 2>/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - resto-red
+
+  # -------------------------------------------------------------
+  # 2. Backend: .NET 8 Web API + SignalR
+  # -------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: resto-backend
+    restart: unless-stopped
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__CadenaConexion: "Server=sqlserver,1433;Database=RestauranteSaaS_Db;User Id=sa;Password=${MSSQL_SA_PASSWORD:-RestoPass2026!#Segura};TrustServerCertificate=True;MultipleActiveResultSets=true;"
+      Jwt__ClaveSecreta: "${JWT_SECRET:-SuperClaveSecretaUltraSeguraRestauranteSaaS2026!#$GastronomiaTotal}"
+      Jwt__Issuer: "RestauranteSaaS"
+      Jwt__Audience: "RestauranteSaaSClientes"
+      ASPNETCORE_ENVIRONMENT: "Production"
+      ASPNETCORE_HTTP_PORTS: "8080"
+    ports:
+      - "${BACKEND_PORT:-5000}:8080"
+    networks:
+      - resto-red
+
+  # -------------------------------------------------------------
+  # 3. Frontend: React Vite + Tailwind + Nginx Inverso
+  # -------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: resto-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    networks:
+      - resto-red
+
+# Volumenes persistentes
+volumes:
+  sqlserver_datos:
+    driver: local
+
+# Red interna privada
+networks:
+  resto-red:
+    driver: bridge
